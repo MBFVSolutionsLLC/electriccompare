@@ -38,11 +38,14 @@ func generateSummarySpreadsheet(result *models.ComparisonResult, filePath string
 
 	// Create summary sheet
 	f.SetSheetName("Sheet1", "Plan Summary")
+	summaries := buildPlanSummaries(result)
 
 	// Headers
 	headers := []string{
+		"Price Rank",
 		"Company Name",
 		"Plan Name",
+		"Total Simulated Bill ($)",
 		"Product Type",
 		"Contract Term (Months)",
 		"Energy Charge (¢/kWh)",
@@ -50,7 +53,6 @@ func generateSummarySpreadsheet(result *models.ComparisonResult, filePath string
 		"Delivery Fixed ($/month)",
 		"Delivery Variable (¢/kWh)",
 		"Termination Fee ($)",
-		"Renewable %",
 		"Time-of-Use",
 		"Observations",
 	}
@@ -61,11 +63,14 @@ func generateSummarySpreadsheet(result *models.ComparisonResult, filePath string
 	}
 
 	// Add plans
-	for row, plan := range result.Plans {
+	for row, summary := range summaries {
+		plan := summary.Plan
 		rowNum := row + 2
 		cells := []interface{}{
+			summary.Rank,
 			plan.CompanyName,
 			plan.PlanName,
+			roundCurrency(summary.TotalBillDollars),
 			plan.ProductType,
 			plan.ContractTermMonths,
 			plan.EnergyCharge.PerKwhCents,
@@ -73,9 +78,8 @@ func generateSummarySpreadsheet(result *models.ComparisonResult, filePath string
 			plan.DeliveryCharge.MonthlyFixed,
 			plan.DeliveryCharge.PerKwhCents,
 			plan.TerminationFeeDollars,
-			plan.RenewablePercent,
 			fmt.Sprintf("%d rates", len(plan.TimeOfUseRates)),
-			strings.Join(plan.Observations, "; "),
+			strings.Join(pricingObservations(plan.Observations), "; "),
 		}
 
 		for col, val := range cells {
@@ -85,7 +89,7 @@ func generateSummarySpreadsheet(result *models.ComparisonResult, filePath string
 	}
 
 	// Set column widths
-	colWidths := []float64{15, 25, 15, 15, 18, 15, 18, 18, 15, 12, 20, 40}
+	colWidths := []float64{10, 15, 28, 22, 15, 15, 18, 15, 18, 18, 15, 20, 40}
 	for col, width := range colWidths {
 		f.SetColWidth("Plan Summary", fmt.Sprintf("%c", 'A'+rune(col)), fmt.Sprintf("%c", 'A'+rune(col)), width)
 	}
@@ -99,6 +103,58 @@ func generateSummarySpreadsheet(result *models.ComparisonResult, filePath string
 
 	fmt.Printf("✓ Summary spreadsheet created: %s\n", filePath)
 	return nil
+}
+
+type planSummary struct {
+	Plan             models.Plan
+	TotalBillDollars float64
+	Rank             int
+}
+
+func buildPlanSummaries(result *models.ComparisonResult) []planSummary {
+	summaries := make([]planSummary, 0, len(result.Plans))
+	for _, plan := range result.Plans {
+		summaries = append(summaries, planSummary{
+			Plan:             plan,
+			TotalBillDollars: totalBillForPlan(result, plan.PlanName),
+		})
+	}
+
+	sort.SliceStable(summaries, func(i, j int) bool {
+		if summaries[i].TotalBillDollars == summaries[j].TotalBillDollars {
+			return summaries[i].Plan.PlanName < summaries[j].Plan.PlanName
+		}
+		return summaries[i].TotalBillDollars < summaries[j].TotalBillDollars
+	})
+
+	for i := range summaries {
+		summaries[i].Rank = i + 1
+	}
+
+	return summaries
+}
+
+func totalBillForPlan(result *models.ComparisonResult, planName string) float64 {
+	total := 0.0
+	for _, bill := range result.Bills[planName] {
+		total += bill.TotalBillDollars
+	}
+	return total
+}
+
+func roundCurrency(value float64) float64 {
+	return float64(int(value*100+0.5)) / 100
+}
+
+func pricingObservations(observations []string) []string {
+	filtered := make([]string, 0, len(observations))
+	for _, observation := range observations {
+		if strings.Contains(strings.ToLower(observation), "renewable") {
+			continue
+		}
+		filtered = append(filtered, observation)
+	}
+	return filtered
 }
 
 func createPricingDetailsSheet(f *excelize.File, result *models.ComparisonResult) {
