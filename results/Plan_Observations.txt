@@ -1,0 +1,19 @@
+Plan Observations Report
+=========================
+
+Company: 119 0 obj<</Filter/FlateDecode/First 55/Length 220/N 8/Type/ObjStm>>stream
+Plan Name: 
+Product Type: 
+Contract Term: 0 months
+PUCT Certificate: 
+
+Plan Details:
+- Energy Charge: 0.0000 ¢/kWh
+- Base Monthly Fee: $0.00
+- Delivery Fixed: $0.00/month
+- Delivery Variable: 0.0000 ¢/kWh
+- Renewable Content: 0.0%
+- Termination Fee: $0.00
+
+Key Observations:
+- No special observations

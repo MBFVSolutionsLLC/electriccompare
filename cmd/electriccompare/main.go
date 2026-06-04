@@ -45,10 +45,10 @@ func main() {
 	fmt.Println("=====================================================\n")
 
 	result := &models.ComparisonResult{
-		Plans:         []models.Plan{},
-		Consumptions:  make(map[string][]models.ConsumptionRecord),
-		Bills:         make(map[string]map[string]models.MonthBill),
-		Observations:  []string{},
+		Plans:        []models.Plan{},
+		Consumptions: make(map[string][]models.ConsumptionRecord),
+		Bills:        make(map[string]map[string]models.MonthBill),
+		Observations: []string{},
 	}
 
 	// Parse PDFs

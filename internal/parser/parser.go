@@ -10,47 +10,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pdfcpu/pdfcpu/pkg/api"
-	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 	"electriccompare/internal/models"
 )
 
 // ParsePDF extracts pricing information from an Electricity Facts Label PDF
 func ParsePDF(filePath string) (*models.Plan, error) {
-	// Read text from PDF
-	var text strings.Builder
-
-	// Try to extract text from the PDF
-	ctx, err := api.ReadContextFromFile(filePath, pdfcpu.NewDefaultConfiguration())
+	// Read the PDF file as binary and extract readable strings
+	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read PDF: %w", err)
+		return nil, fmt.Errorf("failed to read PDF file: %w", err)
 	}
 
-	// Extract text from each page
-	if ctx.XRefTable == nil || ctx.XRefTable.Size == 0 {
-		return nil, fmt.Errorf("PDF has no content")
-	}
+	// Extract readable strings from PDF binary
+	rawText := extractReadableStrings(string(data))
 
-	// For each page, extract text content
-	for pageNum := 1; pageNum <= ctx.PageCount; pageNum++ {
-		// Try to get text content
-		pageContent, err := getPageText(ctx, pageNum)
-		if err == nil && pageContent != "" {
-			text.WriteString(pageContent)
-			text.WriteString("\n")
-		}
-	}
-
-	rawText := text.String()
 	if len(rawText) < 50 {
-		// If we couldn't extract text, try a different approach
-		// Read the raw file as fallback
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read PDF file: %w", err)
-		}
-		// Extract readable strings from PDF binary
-		rawText = extractReadableStrings(string(data))
+		return nil, fmt.Errorf("could not extract sufficient text from PDF")
 	}
 
 	plan := &models.Plan{
@@ -433,26 +408,15 @@ func FindConsumptionFile(consumptionDir string, preferredGranularity string) (st
 }
 
 // extractTextFromPage extracts text from a PDF page
-func extractTextFromPage(p *pdf.Page) (string, error) {
-	if p == nil {
-		return "", fmt.Errorf("nil page")
-	}
-
-	var content strings.Builder
-	
-	// Note: pdfcpu has limited text extraction capabilities
-	// For production use, consider using a more advanced PDF library
-	// This implementation provides basic text extraction from PDFs
-	
-	return content.String(), nil
+func extractTextFromPage(p interface{}) (string, error) {
+	// This function is no longer needed but keeping for compatibility
+	return "", nil
 }
 
-// getPageText extracts text from a PDF page using pdfcpu
-func getPageText(ctx *pdfcpu.Context, pageNum int) (string, error) {
-	var text strings.Builder
-	// pdfcpu has limited built-in text extraction
-	// We'll use a fallback method with binary parsing
-	return text.String(), nil
+// getPageText extracts text from a PDF page
+func getPageText(pageNum int) (string, error) {
+	// This function is no longer needed but keeping for compatibility
+	return "", nil
 }
 
 // extractReadableStrings pulls readable ASCII strings from PDF binary data

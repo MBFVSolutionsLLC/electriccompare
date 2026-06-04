@@ -21,9 +21,9 @@ func CalculateBills(plan *models.Plan, records []models.ConsumptionRecord) map[s
 
 	for monthKey, dayRecords := range monthlyConsumption {
 		bill := models.MonthBill{
-			PlanName:    plan.PlanName,
-			CompanyName: plan.CompanyName,
-			DailyBreakdowns: []models.DailyBreakdown{},
+			PlanName:         plan.PlanName,
+			CompanyName:      plan.CompanyName,
+			DailyBreakdowns:  []models.DailyBreakdown{},
 			CalculationSteps: []models.CalculationStep{},
 		}
 
@@ -41,7 +41,7 @@ func CalculateBills(plan *models.Plan, records []models.ConsumptionRecord) map[s
 		for _, dayKey := range getSortedDays(dailyGroups) {
 			dayRecords := dailyGroups[dayKey]
 			dayDate, _ := time.Parse("2006-01-02", dayKey)
-			
+
 			dayConsumption := 0.0
 			dayCost := 0.0
 			ratesApplied := make(map[string]bool)
@@ -88,7 +88,7 @@ func CalculateBills(plan *models.Plan, records []models.ConsumptionRecord) map[s
 				bill.CalculationSteps = append(bill.CalculationSteps, models.CalculationStep{
 					Description: fmt.Sprintf("Energy Charge - %s", dayDate.Format("2006-01-02")),
 					KwhAmount:   dayConsumption,
-						RateCents:   plan.EnergyCharge.PerKwhCents,
+					RateCents:   plan.EnergyCharge.PerKwhCents,
 					CostDollars: energyCost,
 				})
 			}
@@ -107,11 +107,11 @@ func CalculateBills(plan *models.Plan, records []models.ConsumptionRecord) map[s
 			sort.Strings(ratesList)
 
 			bill.DailyBreakdowns = append(bill.DailyBreakdowns, models.DailyBreakdown{
-				Date:              dayDate,
-				DayOfWeek:         dayDate.Weekday().String(),
-				ConsumptionKwh:    dayConsumption,
-				CostDollars:       dayCost,
-				RatesApplied:      ratesList,
+				Date:           dayDate,
+				DayOfWeek:      dayDate.Weekday().String(),
+				ConsumptionKwh: dayConsumption,
+				CostDollars:    dayCost,
+				RatesApplied:   ratesList,
 			})
 		}
 

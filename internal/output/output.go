@@ -7,8 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/xuri/excelize/v2"
 	"electriccompare/internal/models"
+
+	"github.com/xuri/excelize/v2"
 )
 
 // GenerateOutput creates Excel files and summary reports
@@ -386,8 +387,8 @@ Key Observations:
 	if len(plan.TimeOfUseRates) > 0 {
 		content += "\nTime-of-Use Rate Details:\n"
 		for _, tou := range plan.TimeOfUseRates {
-			content += fmt.Sprintf("- %s: %.2f ¢/kWh (%s, %s)\n  %s\n", 
-				tou.Name, tou.RateCents, tou.DayOfWeek, 
+			content += fmt.Sprintf("- %s: %.2f ¢/kWh (%s, %s)\n  %s\n",
+				tou.Name, tou.RateCents, tou.DayOfWeek,
 				fmt.Sprintf("%02d:00-%02d:00", tou.StartHour, tou.EndHour),
 				tou.Description)
 		}
