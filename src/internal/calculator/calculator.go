@@ -80,7 +80,10 @@ func CalculateBills(plan *models.Plan, records []models.ConsumptionRecord) map[s
 					dayConsumption += record.TotalKwh
 				}
 
-				energyCost := (plan.EnergyCharge.PerKwhDollars) * dayConsumption
+				energyCost := plan.EnergyCharge.PerKwhDollars * dayConsumption
+				if len(plan.EnergyTiers) > 0 {
+					energyCost = 0
+				}
 				dayCost += energyCost
 				totalEnergyCost += energyCost
 				ratesApplied["Energy Charge"] = true
@@ -88,7 +91,7 @@ func CalculateBills(plan *models.Plan, records []models.ConsumptionRecord) map[s
 				bill.CalculationSteps = append(bill.CalculationSteps, models.CalculationStep{
 					Description: fmt.Sprintf("Energy Charge - %s", dayDate.Format("2006-01-02")),
 					KwhAmount:   dayConsumption,
-					RateCents:   plan.EnergyCharge.PerKwhCents,
+					RateCents:   effectiveRateCents(plan, dayConsumption),
 					CostDollars: energyCost,
 				})
 			}
@@ -115,17 +118,81 @@ func CalculateBills(plan *models.Plan, records []models.ConsumptionRecord) map[s
 			})
 		}
 
+		if len(plan.EnergyTiers) > 0 {
+			totalEnergyCost = calculateEnergyCost(plan, totalConsumption)
+			effectiveRate := effectiveRateCents(plan, totalConsumption)
+			for i := range bill.DailyBreakdowns {
+				bill.DailyBreakdowns[i].CostDollars += bill.DailyBreakdowns[i].ConsumptionKwh * effectiveRate / 100
+			}
+			bill.CalculationSteps = append(bill.CalculationSteps, models.CalculationStep{
+				Description: "Monthly tiered energy charge",
+				KwhAmount:   totalConsumption,
+				RateCents:   effectiveRate,
+				CostDollars: totalEnergyCost,
+			})
+		}
+
 		bill.TotalConsumptionKwh = totalConsumption
 		bill.EnergyChargeDollars = totalEnergyCost
 		bill.DeliveryChargeDollars = totalDeliveryCost
 		bill.BaseChargeDollars = plan.BaseCharge.MonthlyFixed
+		bill.BillCreditDollars = calculateBillCredits(plan, totalConsumption)
+		for _, credit := range plan.BillCredits {
+			if totalConsumption >= credit.ThresholdKwh {
+				bill.CalculationSteps = append(bill.CalculationSteps, models.CalculationStep{
+					Description: fmt.Sprintf("Bill Credit - %s", credit.Description),
+					KwhAmount:   totalConsumption,
+					RateCents:   0,
+					CostDollars: -credit.AmountDollars,
+				})
+			}
+		}
 
-		bill.TotalBillDollars = bill.BaseChargeDollars + bill.EnergyChargeDollars + bill.DeliveryChargeDollars
+		bill.TotalBillDollars = bill.BaseChargeDollars + bill.EnergyChargeDollars + bill.DeliveryChargeDollars - bill.BillCreditDollars
 
 		bills[monthKey] = bill
 	}
 
 	return bills
+}
+
+func calculateEnergyCost(plan *models.Plan, kwh float64) float64 {
+	if len(plan.EnergyTiers) == 0 {
+		return plan.EnergyCharge.PerKwhDollars * kwh
+	}
+
+	cost := 0.0
+	for _, tier := range plan.EnergyTiers {
+		if kwh <= tier.MinKwh {
+			continue
+		}
+		upper := tier.MaxKwh
+		if upper == 0 || upper > kwh {
+			upper = kwh
+		}
+		tierKwh := upper - tier.MinKwh
+		if tierKwh > 0 {
+			cost += tierKwh * tier.RateCents / 100
+		}
+	}
+	return cost
+}
+
+func effectiveRateCents(plan *models.Plan, kwh float64) float64 {
+	if len(plan.EnergyTiers) == 0 || kwh == 0 {
+		return plan.EnergyCharge.PerKwhCents
+	}
+	return calculateEnergyCost(plan, kwh) / kwh * 100
+}
+
+func calculateBillCredits(plan *models.Plan, kwh float64) float64 {
+	total := 0.0
+	for _, credit := range plan.BillCredits {
+		if kwh >= credit.ThresholdKwh {
+			total += credit.AmountDollars
+		}
+	}
+	return total
 }
 
 func getTimeOfUseRate(plan *models.Plan, t time.Time) models.TimeOfUseRate {

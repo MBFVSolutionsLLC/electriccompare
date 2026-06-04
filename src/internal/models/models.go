@@ -21,6 +21,20 @@ type ChargeComponent struct {
 	Description   string
 }
 
+// EnergyTier represents a usage-based energy rate tier.
+type EnergyTier struct {
+	MinKwh    float64
+	MaxKwh    float64 // 0 means no upper bound
+	RateCents float64
+}
+
+// BillCredit represents a monthly bill credit triggered by usage.
+type BillCredit struct {
+	AmountDollars float64
+	ThresholdKwh  float64
+	Description   string
+}
+
 // Plan represents an electricity rate plan
 type Plan struct {
 	CompanyName           string
@@ -33,6 +47,8 @@ type Plan struct {
 	EnergyCharge   ChargeComponent
 	BaseCharge     ChargeComponent
 	DeliveryCharge ChargeComponent
+	EnergyTiers    []EnergyTier
+	BillCredits    []BillCredit
 
 	// Time-of-use rates (if applicable)
 	TimeOfUseRates []TimeOfUseRate
@@ -69,6 +85,7 @@ type MonthBill struct {
 	EnergyChargeDollars   float64
 	BaseChargeDollars     float64
 	DeliveryChargeDollars float64
+	BillCreditDollars     float64
 	TotalBillDollars      float64
 
 	// Calculation details

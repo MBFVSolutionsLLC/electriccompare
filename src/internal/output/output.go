@@ -52,6 +52,7 @@ func generateSummarySpreadsheet(result *models.ComparisonResult, filePath string
 		"Base Fee ($/month)",
 		"Delivery Fixed ($/month)",
 		"Delivery Variable (¢/kWh)",
+		"Bill Credits",
 		"Termination Fee ($)",
 		"Time-of-Use",
 		"Observations",
@@ -77,6 +78,7 @@ func generateSummarySpreadsheet(result *models.ComparisonResult, filePath string
 			plan.BaseCharge.MonthlyFixed,
 			plan.DeliveryCharge.MonthlyFixed,
 			plan.DeliveryCharge.PerKwhCents,
+			formatBillCredits(plan.BillCredits),
 			plan.TerminationFeeDollars,
 			fmt.Sprintf("%d rates", len(plan.TimeOfUseRates)),
 			strings.Join(pricingObservations(plan.Observations), "; "),
@@ -89,7 +91,7 @@ func generateSummarySpreadsheet(result *models.ComparisonResult, filePath string
 	}
 
 	// Set column widths
-	colWidths := []float64{10, 15, 28, 22, 15, 15, 18, 15, 18, 18, 15, 20, 40}
+	colWidths := []float64{10, 18, 32, 22, 15, 15, 18, 15, 18, 18, 24, 15, 20, 40}
 	for col, width := range colWidths {
 		f.SetColWidth("Plan Summary", fmt.Sprintf("%c", 'A'+rune(col)), fmt.Sprintf("%c", 'A'+rune(col)), width)
 	}
@@ -177,6 +179,20 @@ func createPricingDetailsSheet(f *excelize.File, result *models.ComparisonResult
 		f.SetCellValue("Pricing Details", fmt.Sprintf("B%d", row), fmt.Sprintf("%.2f ¢/kWh", plan.EnergyCharge.PerKwhCents))
 		row++
 
+		if len(plan.EnergyTiers) > 0 {
+			f.SetCellValue("Pricing Details", fmt.Sprintf("A%d", row), "Energy Tiers:")
+			row++
+			for _, tier := range plan.EnergyTiers {
+				rangeText := fmt.Sprintf("%.0f+ kWh", tier.MinKwh)
+				if tier.MaxKwh > 0 {
+					rangeText = fmt.Sprintf("%.0f - %.0f kWh", tier.MinKwh, tier.MaxKwh)
+				}
+				f.SetCellValue("Pricing Details", fmt.Sprintf("A%d", row), fmt.Sprintf("  %s", rangeText))
+				f.SetCellValue("Pricing Details", fmt.Sprintf("B%d", row), fmt.Sprintf("%.4f ¢/kWh", tier.RateCents))
+				row++
+			}
+		}
+
 		// Base charge
 		f.SetCellValue("Pricing Details", fmt.Sprintf("A%d", row), "Base Fee:")
 		f.SetCellValue("Pricing Details", fmt.Sprintf("B%d", row), fmt.Sprintf("$%.2f/month", plan.BaseCharge.MonthlyFixed))
@@ -190,6 +206,16 @@ func createPricingDetailsSheet(f *excelize.File, result *models.ComparisonResult
 		f.SetCellValue("Pricing Details", fmt.Sprintf("A%d", row), "Delivery Charge (Variable):")
 		f.SetCellValue("Pricing Details", fmt.Sprintf("B%d", row), fmt.Sprintf("%.4f ¢/kWh", plan.DeliveryCharge.PerKwhCents))
 		row++
+
+		if len(plan.BillCredits) > 0 {
+			f.SetCellValue("Pricing Details", fmt.Sprintf("A%d", row), "Bill Credits:")
+			row++
+			for _, credit := range plan.BillCredits {
+				f.SetCellValue("Pricing Details", fmt.Sprintf("A%d", row), fmt.Sprintf("  $%.2f", credit.AmountDollars))
+				f.SetCellValue("Pricing Details", fmt.Sprintf("B%d", row), fmt.Sprintf("at %.0f kWh", credit.ThresholdKwh))
+				row++
+			}
+		}
 
 		// Time of use rates
 		if len(plan.TimeOfUseRates) > 0 {
@@ -255,6 +281,7 @@ func generateMonthlyBills(result *models.ComparisonResult, plan *models.Plan, pl
 		"Energy Charge ($)",
 		"Base Fee ($)",
 		"Delivery Charge ($)",
+		"Bill Credits ($)",
 		"Total Bill ($)",
 		"Avg Cost per kWh (¢)",
 	}
@@ -288,6 +315,7 @@ func generateMonthlyBills(result *models.ComparisonResult, plan *models.Plan, pl
 				fmt.Sprintf("%.2f", bill.EnergyChargeDollars),
 				fmt.Sprintf("%.2f", bill.BaseChargeDollars),
 				fmt.Sprintf("%.2f", bill.DeliveryChargeDollars),
+				fmt.Sprintf("%.2f", bill.BillCreditDollars),
 				fmt.Sprintf("%.2f", bill.TotalBillDollars),
 				fmt.Sprintf("%.4f", avgCost),
 			}
@@ -300,7 +328,7 @@ func generateMonthlyBills(result *models.ComparisonResult, plan *models.Plan, pl
 	}
 
 	f.SetColWidth("Monthly Bills", "A", "A", 15)
-	f.SetColWidth("Monthly Bills", "B", "G", 18)
+	f.SetColWidth("Monthly Bills", "B", "H", 18)
 
 	// Create detailed daily breakdowns
 	createDailyBreakdownSheets(f, result, plan)
@@ -383,6 +411,11 @@ func createCalculationDetailsSheet(f *excelize.File, result *models.ComparisonRe
 		f.SetCellValue("Calculation Method", fmt.Sprintf("A%d", row), fmt.Sprintf("Delivery Variable: %.4f ¢/kWh = $%.6f/kWh", plan.DeliveryCharge.PerKwhCents, plan.DeliveryCharge.PerKwhDollars))
 		row += 2
 
+		if len(plan.BillCredits) > 0 {
+			f.SetCellValue("Calculation Method", fmt.Sprintf("A%d", row), fmt.Sprintf("Bill Credits: %s", formatBillCredits(plan.BillCredits)))
+			row += 2
+		}
+
 		if plan.ProductType == "Time Of Use" && len(plan.TimeOfUseRates) > 0 {
 			f.SetCellValue("Calculation Method", fmt.Sprintf("A%d", row), "Time-of-Use Periods:")
 			row++
@@ -414,6 +447,7 @@ Plan Details:
 - Base Monthly Fee: $%.2f
 - Delivery Fixed: $%.2f/month
 - Delivery Variable: %.4f ¢/kWh
+- Bill Credits: %s
 - Renewable Content: %.1f%%
 - Termination Fee: $%.2f
 
@@ -428,6 +462,7 @@ Key Observations:
 		plan.BaseCharge.MonthlyFixed,
 		plan.DeliveryCharge.MonthlyFixed,
 		plan.DeliveryCharge.PerKwhCents,
+		formatBillCredits(plan.BillCredits),
 		plan.RenewablePercent,
 		plan.TerminationFeeDollars,
 	)
@@ -481,4 +516,15 @@ func sanitizeName(name string) string {
 		"|", "_",
 	)
 	return replacer.Replace(name)
+}
+
+func formatBillCredits(credits []models.BillCredit) string {
+	if len(credits) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(credits))
+	for _, credit := range credits {
+		parts = append(parts, fmt.Sprintf("$%.2f at %.0f kWh", credit.AmountDollars, credit.ThresholdKwh))
+	}
+	return strings.Join(parts, "; ")
 }
