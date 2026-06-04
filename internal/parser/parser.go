@@ -184,7 +184,7 @@ func parseTimeOfUse(text string, plan *models.Plan) {
 		re := regexp.MustCompile(pattern)
 		if matches := re.FindStringSubmatch(text); len(matches) > 0 {
 			desc := matches[1]
-			
+
 			// Parse times and days
 			tou := models.TimeOfUseRate{
 				Name:        "Designated Free Period",
@@ -297,7 +297,7 @@ func ParseConsumptionCSV(filePath string) ([]models.ConsumptionRecord, error) {
 
 	var records []models.ConsumptionRecord
 	scanner := bufio.NewScanner(file)
-	
+
 	// Skip header
 	if !scanner.Scan() {
 		return nil, fmt.Errorf("empty CSV file")
@@ -375,11 +375,11 @@ func FindConsumptionFile(consumptionDir string, preferredGranularity string) (st
 
 	// Map of preferred granularities
 	granularityPriority := map[string]int{
-		"1H":     1,
-		"1DAY":   2,
-		"15MIN":  3,
-		"1MIN":   4,
-		"1SEC":   5,
+		"1H":    1,
+		"1DAY":  2,
+		"15MIN": 3,
+		"1MIN":  4,
+		"1SEC":  5,
 	}
 
 	bestMatch := ""
@@ -486,5 +486,3 @@ func isValidText(s string) bool {
 
 	return hasLetter || (hasDigit && hasCommon)
 }
-
-
