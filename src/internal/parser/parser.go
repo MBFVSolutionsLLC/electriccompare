@@ -2,7 +2,10 @@ package parser
 
 import (
 	"bufio"
+	"bytes"
+	"compress/zlib"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -21,8 +24,10 @@ func ParsePDF(filePath string) (*models.Plan, error) {
 		return nil, fmt.Errorf("failed to read PDF file: %w", err)
 	}
 
-	// Extract readable strings from PDF binary
-	rawText := extractReadableStrings(string(data))
+	rawText := extractPDFText(data)
+	if len(rawText) < 50 {
+		rawText = extractReadableStrings(string(data))
+	}
 
 	if len(rawText) < 50 {
 		return nil, fmt.Errorf("could not extract sufficient text from PDF")
@@ -41,6 +46,13 @@ func ParsePDF(filePath string) (*models.Plan, error) {
 	parseTerms(rawText, plan)
 	parseObservations(rawText, plan)
 
+	if plan.EnergyCharge.PerKwhCents == 0 &&
+		plan.DeliveryCharge.PerKwhCents == 0 &&
+		plan.DeliveryCharge.MonthlyFixed == 0 &&
+		plan.BaseCharge.MonthlyFixed == 0 {
+		return nil, fmt.Errorf("no electricity pricing components found")
+	}
+
 	return plan, nil
 }
 
@@ -56,19 +68,23 @@ func parseHeader(text string, plan *models.Plan) {
 		}
 	}
 
-	// Plan name - look for common patterns
-	planPatterns := []string{
-		`(?i)Plan\s*Name[:\s]+([^\n]+)`,
-		`(?i)(Happy Hour|Eco Rewards|Fixed|Time of Use)[^\n]*(\d+)?\s*(?:-|—)?\s*([^\n]+)?`,
-		`(?i)^([A-Z][a-z\s]+(?:Power|Plan|Rate)[\s\d\w-]+)`,
-	}
+	if planName := findPlanNameNearIssueDate(text); planName != "" {
+		plan.PlanName = planName
+	} else {
+		planPatterns := []string{
+			`(?is)CleanSky Energy\s+([^\n]+?)\s+Issue Date`,
+			`(?im)^Plan\s*Name[:\s]+([^\n]+)`,
+			`(?im)^([A-Za-z][A-Za-z0-9\s-]+(?:Fixed|Time Of Use|Variable))\s*$`,
+		}
 
-	for _, pattern := range planPatterns {
-		re := regexp.MustCompile(pattern)
-		if matches := re.FindStringSubmatch(text); len(matches) > 1 {
-			plan.PlanName = strings.TrimSpace(matches[len(matches)-1])
-			if plan.PlanName != "" {
-				break
+		for _, pattern := range planPatterns {
+			re := regexp.MustCompile(pattern)
+			if matches := re.FindStringSubmatch(text); len(matches) > 1 {
+				plan.PlanName = cleanTextValue(matches[1])
+				if isLikelyPlanName(plan.PlanName) {
+					break
+				}
+				plan.PlanName = ""
 			}
 		}
 	}
@@ -92,12 +108,15 @@ func parseHeader(text string, plan *models.Plan) {
 		}
 	}
 
-	// Product type
-	if strings.Contains(text, "Time Of Use") {
+	productTypeRe := regexp.MustCompile(`(?i)Type\s+of\s+Product\s+([^\n]+)`)
+	if matches := productTypeRe.FindStringSubmatch(text); len(matches) > 1 {
+		plan.ProductType = cleanTextValue(matches[1])
+	}
+	if strings.Contains(strings.ToLower(plan.ProductType), "time of use") || strings.Contains(text, "Time Of Use") {
 		plan.ProductType = "Time Of Use"
-	} else if strings.Contains(text, "Fixed Rate") || strings.Contains(text, "Fixed") {
+	} else if strings.Contains(strings.ToLower(plan.ProductType), "fixed") || strings.Contains(text, "Fixed Rate") || strings.Contains(text, "Fixed") {
 		plan.ProductType = "Fixed"
-	} else if strings.Contains(text, "Variable") {
+	} else if strings.Contains(strings.ToLower(plan.ProductType), "variable") || strings.Contains(text, "Variable") {
 		plan.ProductType = "Variable"
 	}
 }
@@ -105,9 +124,9 @@ func parseHeader(text string, plan *models.Plan) {
 func parsePricing(text string, plan *models.Plan) {
 	// Energy charge - look for patterns like "13.1 ¢ per kWh" or "13.1 cents per kWh"
 	energyPatterns := []string{
-		`(?i)Energy\s*Charge[:\s]+([0-9.]+)\s*[¢c].*?(?:per|\/)\s*kWh`,
-		`(?i)(?:Paid|energy).*?Period[:\s]+([0-9.]+)\s*[¢c].*?(?:per|\/)\s*kWh`,
-		`(?i)(\d+\.?\d*)\s*[¢c].*?kWh.*?energy`,
+		`(?is)Energy\s*Charge[:\s]+([0-9.]+)\s*(?:¢|¡|cents?|c).*?(?:per|\/)\s*kWh`,
+		`(?is)(?:Paid|energy).*?Period[:\s]+([0-9.]+)\s*(?:¢|¡|cents?|c).*?(?:per|\/)\s*kWh`,
+		`(?is)(\d+\.?\d*)\s*(?:¢|¡|cents?|c).*?kWh.*?energy`,
 	}
 
 	for _, pattern := range energyPatterns {
@@ -124,8 +143,8 @@ func parsePricing(text string, plan *models.Plan) {
 
 	// Base charge/Fee
 	basePatterns := []string{
-		`(?i)Base\s*(?:Charge|Fee)[:\s]+\$([0-9.]+)`,
-		`(?i)(?:no monthly|monthly)\s*(?:charge|fee)[:\s]*\$?([0-9.]*)`,
+		`(?is)Base\s*(?:Charge|Fee)[:\s]+\$?([0-9.]+)`,
+		`(?is)(?:no monthly|monthly)\s*(?:charge|fee)[:\s]*\$?([0-9.]*)`,
 	}
 
 	for _, pattern := range basePatterns {
@@ -141,8 +160,8 @@ func parsePricing(text string, plan *models.Plan) {
 
 	// Delivery/TDSP charge - fixed monthly and per kWh
 	deliveryPatterns := []string{
-		`(?i)(?:Oncor|TDSP|Delivery).*?Charges[:\s]+\$([0-9.]+).*?month.*?([0-9.]+)\s*[¢c]`,
-		`(?i)(\$[\d.]+)\s*(?:per month|monthly).*?and\s+([0-9.]+)\s*[¢c]`,
+		`(?is)(?:Oncor|TDSP|Delivery).*?Charges[:\s]+\$([0-9.]+).*?month.*?([0-9.]+)\s*(?:¢|¡|cents?|c)`,
+		`(?is)(\$[\d.]+)\s*(?:per month|monthly).*?and\s+([0-9.]+)\s*(?:¢|¡|cents?|c)`,
 	}
 
 	for _, pattern := range deliveryPatterns {
@@ -176,14 +195,14 @@ func parseTimeOfUse(text string, plan *models.Plan) {
 
 	// Look for designated free period
 	freePatterns := []string{
-		`(?i)Designated\s*Free\s*Period[:\s]+([^\n]+)`,
-		`(?i)Free.*?from\s+([0-9:]+(am|pm)?)\s*(?:to|-|through)\s+([0-9:]+(am|pm)?)\s*(?:on\s+)?([^\n]+)`,
+		`(?is)Designated\s*Free\s*(?:Energy|Period)[:\s]+([^\n]+(?:\n[^\n]+)?)`,
+		`(?is)Free.*?from\s+([0-9:]+\s*(?:am|pm)?)\s*(?:to|-|through)\s+([0-9:]+\s*(?:am|pm)?)(?:\s+on\s+)?([^\n]+)`,
 	}
 
 	for _, pattern := range freePatterns {
 		re := regexp.MustCompile(pattern)
 		if matches := re.FindStringSubmatch(text); len(matches) > 0 {
-			desc := matches[1]
+			desc := cleanTextValue(matches[1])
 
 			// Parse times and days
 			tou := models.TimeOfUseRate{
@@ -204,17 +223,14 @@ func parseTimeOfUse(text string, plan *models.Plan) {
 			}
 
 			// Parse hour range
-			timeRe := regexp.MustCompile(`(\d{1,2}):?(\d{2})?\s*(am|pm)?`)
+			timeRe := regexp.MustCompile(`(?i)(\d{1,2})(?::(\d{2}))?\s*(am|pm)?`)
 			if matches := timeRe.FindAllStringSubmatch(desc, -1); len(matches) >= 2 {
-				if h1, err := strconv.Atoi(matches[0][1]); err == nil {
-					tou.StartHour = h1
-					if h2, err := strconv.Atoi(matches[len(matches)-1][1]); err == nil {
-						tou.EndHour = h2
-					}
-				}
+				tou.StartHour = parseClockHour(matches[0][1], matches[0][3])
+				tou.EndHour = parseClockHour(matches[len(matches)-1][1], matches[len(matches)-1][3])
 			}
 
 			plan.TimeOfUseRates = append(plan.TimeOfUseRates, tou)
+			break
 		}
 	}
 
@@ -241,8 +257,9 @@ func parseTerms(text string, plan *models.Plan) {
 
 	// Termination fee
 	feePatterns := []string{
-		`(?i)(?:Termination|Cancellation)\s*Fee[:\s]+\$([0-9.]+)`,
-		`(?i)Fee\s*for\s*(?:Early)?.*?(?:Termination|Cancellation)[:\s]+\$([0-9.]+)`,
+		`(?is)(?:Termination|Cancellation)\s*Fee[:\s-]+\$([0-9.]+)`,
+		`(?is)Fee\s*for\s*(?:Early)?.*?(?:Termination|Cancellation)[:\s]+\$([0-9.]+)`,
+		`(?is)terminating\s+service\?\s*\$([0-9.]+)`,
 	}
 
 	for _, pattern := range feePatterns {
@@ -254,6 +271,212 @@ func parseTerms(text string, plan *models.Plan) {
 			}
 		}
 	}
+}
+
+func extractPDFText(data []byte) string {
+	streams := decompressPDFStreams(data)
+	var parts []string
+	for _, stream := range streams {
+		parts = append(parts, extractPDFTextOperators(stream)...)
+	}
+	return normalizeExtractedText(parts)
+}
+
+func decompressPDFStreams(data []byte) [][]byte {
+	streamRe := regexp.MustCompile(`(?s)stream\r?\n(.*?)\r?\nendstream`)
+	matches := streamRe.FindAllSubmatch(data, -1)
+	streams := make([][]byte, 0, len(matches))
+	for _, match := range matches {
+		payload := bytes.Trim(match[1], "\r\n")
+		reader, err := zlib.NewReader(bytes.NewReader(payload))
+		if err != nil {
+			continue
+		}
+		decoded, err := io.ReadAll(reader)
+		reader.Close()
+		if err == nil {
+			streams = append(streams, decoded)
+		}
+	}
+	return streams
+}
+
+func extractPDFTextOperators(stream []byte) []string {
+	var parts []string
+
+	tjRe := regexp.MustCompile(`(?s)\((?:\\.|[^\\)])*\)\s*Tj`)
+	for _, match := range tjRe.FindAll(stream, -1) {
+		closeParen := bytes.LastIndexByte(match, ')')
+		if closeParen <= 0 {
+			continue
+		}
+		decoded := decodePDFLiteralString(match[1:closeParen])
+		if strings.TrimSpace(decoded) != "" {
+			parts = append(parts, decoded)
+		}
+	}
+
+	arrayTJRe := regexp.MustCompile(`(?s)\[(.*?)\]\s*TJ`)
+	stringRe := regexp.MustCompile(`(?s)\((?:\\.|[^\\)])*\)`)
+	for _, match := range arrayTJRe.FindAllSubmatch(stream, -1) {
+		var b strings.Builder
+		for _, str := range stringRe.FindAll(match[1], -1) {
+			closeParen := bytes.LastIndexByte(str, ')')
+			if closeParen <= 0 {
+				continue
+			}
+			b.WriteString(decodePDFLiteralString(str[1:closeParen]))
+		}
+		if text := strings.TrimSpace(b.String()); text != "" {
+			parts = append(parts, text)
+		}
+	}
+
+	return parts
+}
+
+func decodePDFLiteralString(raw []byte) string {
+	unescaped := unescapePDFLiteral(raw)
+	if len(unescaped) >= 2 && len(unescaped)%2 == 0 {
+		var b strings.Builder
+		for i := 0; i+1 < len(unescaped); i += 2 {
+			code := int(unescaped[i])<<8 | int(unescaped[i+1])
+			switch {
+			case code == 0x0003:
+				b.WriteByte(' ')
+			case code >= 0x0003 && code <= 0x00b4:
+				b.WriteRune(rune(code + 29))
+			case code >= 32 && code <= 126:
+				b.WriteByte(byte(code))
+			}
+		}
+		if text := b.String(); strings.TrimSpace(text) != "" {
+			return text
+		}
+	}
+	return string(unescaped)
+}
+
+func unescapePDFLiteral(raw []byte) []byte {
+	out := make([]byte, 0, len(raw))
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '\\' {
+			out = append(out, raw[i])
+			continue
+		}
+		i++
+		if i >= len(raw) {
+			break
+		}
+		switch raw[i] {
+		case 'n':
+			out = append(out, '\n')
+		case 'r':
+			out = append(out, '\r')
+		case 't':
+			out = append(out, '\t')
+		case 'b':
+			out = append(out, '\b')
+		case 'f':
+			out = append(out, '\f')
+		case '(', ')', '\\':
+			out = append(out, raw[i])
+		case '\n':
+		case '\r':
+			if i+1 < len(raw) && raw[i+1] == '\n' {
+				i++
+			}
+		default:
+			if raw[i] >= '0' && raw[i] <= '7' {
+				octal := []byte{raw[i]}
+				for j := 0; j < 2 && i+1 < len(raw) && raw[i+1] >= '0' && raw[i+1] <= '7'; j++ {
+					i++
+					octal = append(octal, raw[i])
+				}
+				if val, err := strconv.ParseInt(string(octal), 8, 16); err == nil {
+					out = append(out, byte(val))
+				}
+			} else {
+				out = append(out, raw[i])
+			}
+		}
+	}
+	return out
+}
+
+func normalizeExtractedText(parts []string) string {
+	var lines []string
+	for _, part := range parts {
+		for _, line := range strings.Split(part, "\n") {
+			line = cleanTextValue(line)
+			if line != "" {
+				lines = append(lines, line)
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func cleanTextValue(value string) string {
+	value = strings.ReplaceAll(value, "¡", "¢")
+	value = strings.ReplaceAll(value, "Î", "-")
+	value = strings.ReplaceAll(value, "\u0086", "")
+	value = strings.Join(strings.Fields(value), " ")
+	return strings.TrimSpace(value)
+}
+
+func parseClockHour(hourText, suffix string) int {
+	hour, err := strconv.Atoi(hourText)
+	if err != nil {
+		return 0
+	}
+	suffix = strings.ToLower(suffix)
+	if suffix == "pm" && hour != 12 {
+		hour += 12
+	}
+	if suffix == "am" && hour == 12 {
+		return 0
+	}
+	return hour
+}
+
+func findPlanNameNearIssueDate(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if !strings.Contains(strings.ToLower(line), "issue date") {
+			continue
+		}
+		for j := i - 1; j >= 0; j-- {
+			candidate := cleanTextValue(lines[j])
+			if isLikelyPlanName(candidate) {
+				return candidate
+			}
+		}
+	}
+	return ""
+}
+
+func isLikelyPlanName(value string) bool {
+	if value == "" {
+		return false
+	}
+	lower := strings.ToLower(value)
+	rejected := []string{
+		"type of product",
+		"contract term",
+		"electricity facts label",
+		"cleansky energy",
+		"oncor service area",
+		"renewable content",
+	}
+	for _, reject := range rejected {
+		if strings.Contains(lower, reject) {
+			return false
+		}
+	}
+	return strings.Contains(lower, "fixed") ||
+		strings.Contains(lower, "time of use") ||
+		strings.Contains(lower, "variable")
 }
 
 func parseObservations(text string, plan *models.Plan) {

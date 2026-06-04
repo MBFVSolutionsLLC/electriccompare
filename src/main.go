@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"electriccompare/internal/calculator"
 	"electriccompare/internal/models"
@@ -41,8 +42,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("\nElectricCompare - Electricity Plan Comparison Tool")
-	fmt.Println("=====================================================\n")
+	fmt.Println()
+	fmt.Println("ElectricCompare - Electricity Plan Comparison Tool")
+	fmt.Println("=====================================================")
+	fmt.Println()
 
 	result := &models.ComparisonResult{
 		Plans:        []models.Plan{},
@@ -98,6 +101,7 @@ func parsePDFs(factsDir string, result *models.ComparisonResult) error {
 	}
 
 	pdfCount := 0
+	planNameCounts := make(map[string]int)
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".pdf" {
 			continue
@@ -112,6 +116,7 @@ func parsePDFs(factsDir string, result *models.ComparisonResult) error {
 			continue
 		}
 
+		plan.PlanName = uniquePlanName(plan.PlanName, entry.Name(), planNameCounts)
 		result.Plans = append(result.Plans, *plan)
 		fmt.Printf("✓ %s\n", plan.PlanName)
 		pdfCount++
@@ -126,34 +131,22 @@ func parsePDFs(factsDir string, result *models.ComparisonResult) error {
 }
 
 func parseConsumptionData(consumptionDir string, result *models.ComparisonResult) error {
-	entries, err := os.ReadDir(consumptionDir)
+	filePath, err := parser.FindConsumptionFile(consumptionDir, "1H")
 	if err != nil {
 		return err
 	}
 
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".csv" {
-			continue
-		}
-
-		filePath := filepath.Join(consumptionDir, entry.Name())
-		fmt.Printf("  Reading: %s... ", entry.Name())
-
-		records, err := parser.ParseConsumptionCSV(filePath)
-		if err != nil {
-			fmt.Printf("❌ Error: %v\n", err)
-			continue
-		}
-
-		result.Consumptions[entry.Name()] = records
-		fmt.Printf("✓ %d records\n", len(records))
+	fmt.Printf("  Reading: %s... ", filepath.Base(filePath))
+	records, err := parser.ParseConsumptionCSV(filePath)
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+		return err
 	}
 
-	if len(result.Consumptions) == 0 {
-		return fmt.Errorf("no CSV files found in %s", consumptionDir)
-	}
+	result.Consumptions[filepath.Base(filePath)] = records
+	fmt.Printf("✓ %d records\n", len(records))
 
-	fmt.Printf("✓ Parsed %d consumption files\n", len(result.Consumptions))
+	fmt.Printf("✓ Selected %s for bill simulation\n", filepath.Base(filePath))
 	return nil
 }
 
@@ -177,7 +170,8 @@ func calculateAllBills(result *models.ComparisonResult) {
 func printSummary(result *models.ComparisonResult, outputDir string) {
 	fmt.Println("\n=====================================================")
 	fmt.Println("Analysis Summary")
-	fmt.Println("=====================================================\n")
+	fmt.Println("=====================================================")
+	fmt.Println()
 
 	fmt.Printf("Plans Analyzed: %d\n", len(result.Plans))
 	fmt.Printf("Consumption Files: %d\n", len(result.Consumptions))
@@ -215,4 +209,17 @@ func printSummary(result *models.ComparisonResult, outputDir string) {
 
 	fmt.Printf("Output Location: %s\n\n", outputDir)
 	fmt.Println("✓ Analysis complete! Check the output directory for detailed reports.")
+}
+
+func uniquePlanName(planName, fileName string, counts map[string]int) string {
+	planName = strings.TrimSpace(planName)
+	if planName == "" {
+		planName = strings.TrimSuffix(fileName, filepath.Ext(fileName))
+	}
+
+	counts[planName]++
+	if counts[planName] == 1 {
+		return planName
+	}
+	return fmt.Sprintf("%s (%d)", planName, counts[planName])
 }

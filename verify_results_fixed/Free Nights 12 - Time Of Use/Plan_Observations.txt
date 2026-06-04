@@ -1,0 +1,26 @@
+Plan Observations Report
+=========================
+
+Company: CleanSky Energy
+Plan Name: Free Nights 12 - Time Of Use
+Product Type: Time Of Use
+Contract Term: 12 months
+PUCT Certificate: 10268
+
+Plan Details:
+- Energy Charge: 18.1000 ¢/kWh
+- Base Monthly Fee: $0.00
+- Delivery Fixed: $4.06/month
+- Delivery Variable: 6.1196 ¢/kWh
+- Renewable Content: 0.0%
+- Termination Fee: $150.00
+
+Key Observations:
+1. Autopay required or recommended
+2. 100% renewable energy content
+
+Time-of-Use Rate Details:
+- Designated Free Period: 0.00 ¢/kWh (All, 00:00-06:00)
+  0¢ per kWh from 9pm - 6am every day Base Charge:
+- Paid Energy Period: 18.10 ¢/kWh (All, 00:00-00:00)
+  All times not in Designated Free Period

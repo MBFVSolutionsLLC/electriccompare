@@ -1,0 +1,21 @@
+Plan Observations Report
+=========================
+
+Company: CleanSky Energy
+Plan Name: Eco Rewards 36 - Fixed
+Product Type: Fixed
+Contract Term: 36 months
+PUCT Certificate: 10268
+
+Plan Details:
+- Energy Charge: 9.3000 ¢/kWh
+- Base Monthly Fee: $0.00
+- Delivery Fixed: $4.06/month
+- Delivery Variable: 6.1196 ¢/kWh
+- Renewable Content: 0.0%
+- Termination Fee: $275.00
+
+Key Observations:
+1. Autopay required or recommended
+2. Some locations may be subject to Underground Facilities and Cost Recovery Charge
+3. 100% renewable energy content

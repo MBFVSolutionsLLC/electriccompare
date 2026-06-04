@@ -1,0 +1,27 @@
+Plan Observations Report
+=========================
+
+Company: CleanSky Energy
+Plan Name: Free Weekends 12 - Time Of Use
+Product Type: Time Of Use
+Contract Term: 12 months
+PUCT Certificate: 10268
+
+Plan Details:
+- Energy Charge: 16.9000 ¢/kWh
+- Base Monthly Fee: $0.00
+- Delivery Fixed: $4.06/month
+- Delivery Variable: 6.1196 ¢/kWh
+- Renewable Content: 0.0%
+- Termination Fee: $150.00
+
+Key Observations:
+1. Autopay required or recommended
+2. Pricing assumes 35% of consumption during Designated Free Period
+3. 100% renewable energy content
+
+Time-of-Use Rate Details:
+- Designated Free Period: 0.00 ¢/kWh (Monday-Friday, 00:00-23:00)
+  0¢ per kWh from 9pm on Friday - 11:59pm on Sunday Base Charge:
+- Paid Energy Period: 16.90 ¢/kWh (All, 00:00-00:00)
+  All times not in Designated Free Period
